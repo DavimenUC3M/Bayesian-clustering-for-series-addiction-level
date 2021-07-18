@@ -1,0 +1,1647 @@
+---
+title: "Bayesian clustering of series addiction level"
+author: "David Méndez Encinas"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+[Bachelor in Data Science and Engineering](https://www.uc3m.es/bachelor-degree/data-science)<br />
+[Bayesian Data Analysis](https://aplicaciones.uc3m.es/cpa/generaFicha?&est=350&asig=16502&idioma=2)
+
+![](D:/Documentos/Universidad/Tercero/Bayesian Data Analysis/Project/Netflox.png)
+
+
+## Objective
+
+The objective of this project is to understand how to use the EM algorithm, Gibbs sampling and Variational Bayes. In order to do that, I would like to apply those
+concepts into a practical case study.
+
+## Addiction to series dataset
+
+In order to create the [Series.csv](https://drive.google.com/file/d/1ipDb9eCn6czyfyhM1OxN92oSHIgwuWEO/view?usp=sharing) dataset, I have made a google form to distribute it to some people of different ages, the more varied the surveyed people, the more interesting results I will get. The questions that were ask on the form were the following:
+
+  * Which is your age range?
+  * Which is your gender?
+  
+  1. Have you seen any series online recently?
+  2. Do you have an active subscription to any online series viewing platform? 
+  3. Do you share the subscription with someone else? 
+  4. Have you used or do you use a pirate page to watch series?
+  5. Do you usually watch the series in company?
+  6. Have you ever met with friends or family to watch a series?
+  7. How many hours have you spent a day watching series in the last week?
+  8. How many hours a week have you spent watching series in the last month?
+  9. Do you usually see the series that are recommended in trends?
+  10. Do you prefer series to movies?
+  11. Would you rather watch the series in a theater rather than at home?
+  12. Do you usually watch the series on your smartphone?
+  13. Have you ever recommended a series?
+  14. Have you ever been recommended a series?
+  15. Do you usually stay up late watching series?
+  16. Have you missed an important task to watch a series?
+  17. Do you usually watch the series without interruption?
+  28. Has someone close to you told you that you watch too many series?
+  19. Do you consider yourself a series addict?
+
+(*All the survey was originally sent in spanish, this is why the answers on the dataset are in that language*)
+
+## Data understanding 
+
+For this section, we are going to visualize the dataset and get a better understanding of what we have.
+
+
+```{r}
+rm(list=ls())
+setwd("D:/Documentos/Universidad/Tercero/Bayesian Data Analysis/datasets")
+data <- read.csv2("Series.csv",sep = ",",dec = ".")
+
+names(data)
+```
+
+```{r,echo=FALSE}
+X = data[2:22] #We don't want the Time_stamp variable
+
+library(ggplot2)
+library(gridExtra)
+
+plot1 = ggplot(X, aes(x=x7.week.hrs)) + 
+  geom_histogram(color="black",fill="lightblue",binwidth = 2)+
+  labs(x = "Hours per week",title = "Hour per week histogram")
+
+plot2 = ggplot(X, aes(x=x7.week.hrs)) + 
+  geom_density(color="black",fill="lightblue")+
+  labs(x = "Hours per week",title = "Hour per week density")
+
+grid.arrange(plot1, plot2, ncol=2)
+
+summary(X$x7.week.hrs)
+
+plot3 = ggplot(X, aes(x=x6.day.hrs)) + 
+  geom_histogram(color="black",fill="lightgreen",binwidth = 2)+
+  labs(x = "Hours per day",title = "Hour per day histogram")
+
+plot4 = ggplot(X, aes(x=x6.day.hrs)) + 
+  geom_density(color="black",fill="lightgreen")+
+  labs(x = "Hours per day",title = "Hour per day density")
+
+grid.arrange(plot3, plot4, ncol=2)
+
+summary(X$x6.day.hrs)
+```
+### Sensitive variables pie charts
+```{r, echo=TRUE}
+par(mfrow = c(1,2))
+pie(table(X["Age"]),main=colnames(X)["Age"],radius=1)
+pie(table(X["Gender"]),main=colnames(X)["Gender"],radius=1)
+```
+
+### Binary variables pie charts
+
+```{r, echo=TRUE}
+par(mfrow = c(3,3))
+for (i in 3:21){
+  if(sapply(X[i], class)[1] == "character"){
+    pie(table(X[,i]),main=colnames(X)[i],radius=1)
+  }
+}
+```
+
+### Analizing the Age 
+
+```{r}
+aux1 = X[which(X$Age == "50-70"),]
+aux2 = X[which(X$Age == "70+"),]
+
+Y = rbind(aux1,aux2) #Dataset with age between 50-100
+
+aux1 = X[which(X$Age == "1-15"),]
+aux2 = X[which(X$Age == "16-21"),]
+aux3 = X[which(X$Age == "22-30"),]
+aux4 = X[which(X$Age == "31-50"),]
+
+Z = rbind(aux1,aux2,aux3,aux4) #Dataset with age between 1-49
+```
+
+```{r,echo=FALSE}
+print(paste0("Instances of > 50 dataset: ",length(Y[,1])))
+print(paste0("Instances of < 50 dataset: ",length(Z[,1])))
+```
+
+
+```{r,echo=FALSE}
+
+plot1 = ggplot(Y, aes(x=x7.week.hrs)) + 
+  geom_histogram(color="black",fill="lavender",binwidth = 2)+
+  labs(x = "Hours per week",title = "Hour per week histogram | Age > 50")
+
+plot2 = ggplot(Y, aes(x=x7.week.hrs)) + 
+  geom_density(color="black",fill="lavender")+
+  labs(x = "Hours per week",title = "Hour per week density | Age > 50")
+
+
+plot3 = ggplot(Z, aes(x=x7.week.hrs)) + 
+  geom_histogram(color="black",fill="lightgreen",binwidth = 2)+
+  labs(x = "Hours per week",title = "Hour per week histogram | Age < 50")
+
+plot4 = ggplot(Z, aes(x=x7.week.hrs)) + 
+  geom_density(color="black",fill="lightgreen")+
+  labs(x = "Hours per week",title = "Hour per week density | Age < 50")
+
+grid.arrange(plot1, plot2,plot3,plot4,ncol=2, nrow=2)
+
+summary(Y$x7.week.hrs)
+summary(Z$x7.week.hrs)
+
+plot1 = ggplot(Y, aes(x=x6.day.hrs)) + 
+  geom_histogram(color="black",fill="lavender",binwidth = 2)+
+  labs(x = "Hours per day",title = "Hour per day histogram | Age > 50")
+
+plot2 = ggplot(Y, aes(x=x6.day.hrs)) + 
+  geom_density(color="black",fill="lavender")+
+  labs(x = "Hours per day",title = "Hour per day density | Age > 50")
+
+plot3 = ggplot(Z, aes(x=x6.day.hrs)) + 
+  geom_histogram(color="black",fill="lightgreen",binwidth = 2)+
+  labs(x = "Hours per day",title = "Hour per day histogram | Age < 50")
+
+plot4 = ggplot(Z, aes(x=x6.day.hrs)) + 
+  geom_density(color="black",fill="lightgreen")+
+  labs(x = "Hours per day",title = "Hour per day density | Age < 50")
+
+grid.arrange(plot1, plot2, plot3, plot4, ncol=2, nrow=2)
+
+summary(Y$x6.day.hrs)
+summary(Z$x6.day.hrs)
+```
+
+### Comparing some interesting variables between the 50-70 ages and 16-21
+
+```{r,echo=FALSE}
+
+print(paste0("Hours per week mean of 50-70 dataset: ",mean(X[which(X$Age == "50-70"),]$x7.week.hrs)))
+
+print(paste0("Hours per week mean of 16-21 dataset: ",mean(X[which(X$Age == "16-21"),]$x7.week.hrs)))
+
+
+```
+
+
+```{r, echo=FALSE}
+
+
+par(mfrow = c(1,2))
+pie(table(X[which(X$Age == "50-70"),]$x2.Shared),main="50-70 Shared subscription",radius=1)
+pie(table(X[which(X$Age == "16-21"),]$x2.Shared),main="16-21 Shared subscription",radius=1)
+
+par(mfrow = c(1,2))
+pie(table(X[which(X$Age == "50-70"),]$x3.Pirate),main="50-70 Pirate",radius=1)
+pie(table(X[which(X$Age == "16-21"),]$x3.Pirate),main="16-21 Pirate",radius=1)
+
+par(mfrow = c(1,2))
+pie(table(X[which(X$Age == "50-70"),]$x11.smartphone),main="50-70 View in smartphone",radius=1)
+pie(table(X[which(X$Age == "16-21"),]$x11.smartphone),main="16-21 View in smartphone",radius=1)
+
+par(mfrow = c(1,2))
+pie(table(X[which(X$Age == "50-70"),]$x14.late),main="50-70 Late at night",radius=1)
+pie(table(X[which(X$Age == "16-21"),]$x14.late),main="16-21 Late at night",radius=1)
+
+par(mfrow = c(1,2))
+pie(table(X[which(X$Age == "50-70"),]$x15.procrastinate),main="50-70 Procrastinate",radius=1)
+pie(table(X[which(X$Age == "16-21"),]$x15.procrastinate),main="16-21 Procrastinate",radius=1)
+
+par(mfrow = c(1,2))
+pie(table(X[which(X$Age == "50-70"),]$x16.non.stop),main="50-70 Non stop",radius=1)
+pie(table(X[which(X$Age == "16-21"),]$x16.non.stop),main="16-21 Non stop",radius=1)
+
+```
+
+## Latent class analysis (LCA)
+
+For this part, we want to obtain K groups of profiles according to their habits watching series.
+
+For each observation, x=(x1,…,xM), we may assume a K-component mixture of multivariate binary variables with probability distribution:
+
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mo movablelimits="true" form="prefix">Pr</mo>
+  <mrow>
+    <mo>(</mo>
+    <mrow>
+      <mrow class="MJX-TeXAtom-ORD">
+        <mi mathvariant="bold">x</mi>
+      </mrow>
+      <mo>&#x2223;<!-- ∣ --></mo>
+      <mi>K</mi>
+      <mo>,</mo>
+      <mrow class="MJX-TeXAtom-ORD">
+        <mi mathvariant="bold">w</mi>
+      </mrow>
+      <mo>,</mo>
+      <mi mathvariant="bold-italic">&#x03B8;<!-- θ --></mi>
+    </mrow>
+    <mo>)</mo>
+  </mrow>
+  <mo>=</mo>
+  <munderover>
+    <mo movablelimits="false">&#x2211;<!-- ∑ --></mo>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>k</mi>
+      <mo>=</mo>
+      <mn>1</mn>
+    </mrow>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>K</mi>
+    </mrow>
+  </munderover>
+  <msub>
+    <mi>w</mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>K</mi>
+    </mrow>
+  </msub>
+  <munderover>
+    <mo>&#x220F;<!-- ∏ --></mo>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>m</mi>
+      <mo>=</mo>
+      <mn>1</mn>
+    </mrow>
+    <mi>M</mi>
+  </munderover>
+  <msubsup>
+    <mi>&#x03B8;<!-- θ --></mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>k</mi>
+      <mi>m</mi>
+    </mrow>
+    <mrow class="MJX-TeXAtom-ORD">
+      <msub>
+        <mi>x</mi>
+        <mi>m</mi>
+      </msub>
+    </mrow>
+  </msubsup>
+  <mo stretchy="false">(</mo>
+  <mn>1</mn>
+  <mo>&#x2212;<!-- − --></mo>
+  <msub>
+    <mi>&#x03B8;<!-- θ --></mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>k</mi>
+      <mi>m</mi>
+    </mrow>
+  </msub>
+  <msup>
+    <mo stretchy="false">)</mo>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mo stretchy="false">(</mo>
+      <mn>1</mn>
+      <mo>&#x2212;<!-- − --></mo>
+      <msub>
+        <mi>x</mi>
+        <mi>m</mi>
+      </msub>
+      <mo stretchy="false">)</mo>
+    </mrow>
+  </msup>
+</math>
+
+where <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow class="MJX-TeXAtom-ORD">
+    <mi mathvariant="bold">w</mi>
+  </mrow>
+  <mo>=</mo>
+  <mrow>
+    <mo>{</mo>
+    <msub>
+      <mi>w</mi>
+      <mi>K</mi>
+    </msub>
+    <mo>}</mo>
+  </mrow>
+</math> and <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi mathvariant="bold-italic">&#x03B8;<!-- θ --></mi>
+  <mo>=</mo>
+  <mrow>
+    <mo>{</mo>
+    <msub>
+      <mi>&#x03B8;<!-- θ --></mi>
+      <mrow class="MJX-TeXAtom-ORD">
+        <mi>k</mi>
+        <mi>m</mi>
+      </mrow>
+    </msub>
+    <mo>}</mo>
+  </mrow>
+</math> K=1,…,K and for m=1,…,M.
+
+We assume the following priors:
+
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi mathvariant="bold-italic">w</mi>
+  <mo>&#x223C;<!-- ∼ --></mo>
+  <mtext>Dirichlet</mtext>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mi>&#x03B4;<!-- δ --></mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mn>1</mn>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <mo>&#x2026;<!-- … --></mo>
+  <mo>,</mo>
+  <msub>
+    <mi>&#x03B4;<!-- δ --></mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>K</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math>
+
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <msub>
+    <mi>&#x03B8;<!-- θ --></mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>k</mi>
+      <mi>m</mi>
+    </mrow>
+  </msub>
+  <mo>&#x223C;<!-- ∼ --></mo>
+  <mtext>Beta</mtext>
+  <mrow>
+    <mo>(</mo>
+    <mrow>
+      <msub>
+        <mi>&#x03B1;<!-- α --></mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi>k</mi>
+          <mi>m</mi>
+        </mrow>
+      </msub>
+      <mo>,</mo>
+      <msub>
+        <mi>&#x03B2;<!-- β --></mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi>k</mi>
+          <mi>m</mi>
+        </mrow>
+      </msub>
+    </mrow>
+    <mo>)</mo>
+  </mrow>
+</math>
+
+In our case: 
+
+  * x=(x1,…,xN) being N = 202 respondents 
+  * xi=(xi1,…,xiM)  is a vector of M=19 binary variables representing the 19 responses to the survey.
+  * We assume that there are K=3 groups of profiles and the prior probability of belonging to group k is wk.
+  * We also assume that the responses to survey in each group follow independent Bernoulli distributions,
+  
+  <math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mo movablelimits="true" form="prefix">Pr</mo>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mi>x</mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>i</mi>
+      <mi>m</mi>
+    </mrow>
+  </msub>
+  <mo>&#x2223;<!-- ∣ --></mo>
+  <msub>
+    <mi>&#x03B8;<!-- θ --></mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>k</mi>
+      <mi>m</mi>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+  <msubsup>
+    <mi>&#x03B8;<!-- θ --></mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>k</mi>
+      <mi>m</mi>
+    </mrow>
+    <mrow class="MJX-TeXAtom-ORD">
+      <msub>
+        <mi>x</mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi>i</mi>
+          <mi>m</mi>
+        </mrow>
+      </msub>
+    </mrow>
+  </msubsup>
+  <mo stretchy="false">(</mo>
+  <mn>1</mn>
+  <mo>&#x2212;<!-- − --></mo>
+  <msub>
+    <mi>&#x03B8;<!-- θ --></mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>k</mi>
+      <mi>m</mi>
+    </mrow>
+  </msub>
+  <msup>
+    <mo stretchy="false">)</mo>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mn>1</mn>
+      <mo>&#x2212;<!-- − --></mo>
+      <msub>
+        <mi>x</mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi>i</mi>
+          <mi>m</mi>
+        </mrow>
+      </msub>
+    </mrow>
+  </msup>
+  <mo>,</mo>
+  <mspace width="1em" />
+  <mtext>for&#xA0;</mtext>
+  <mi>m</mi>
+  <mo>=</mo>
+  <mn>1</mn>
+  <mo>,</mo>
+  <mo>&#x2026;<!-- … --></mo>
+  <mo>,</mo>
+  <mi>M</mi>
+</math>
+
+The main idea is to define a latent set of variables, z={z1,…,zN}, indicating the group of each respondent. 
+The prior probability that i-th respondent belongs to group k is:
+
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mo movablelimits="true" form="prefix">Pr</mo>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi mathvariant="bold">z</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>=</mo>
+  <mi>k</mi>
+  <mo>&#x2223;<!-- ∣ --></mo>
+  <mrow class="MJX-TeXAtom-ORD">
+    <mi mathvariant="bold">w</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi mathvariant="bold-italic">&#x03B8;<!-- θ --></mi>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+  <msub>
+    <mi>w</mi>
+    <mi>k</mi>
+  </msub>
+</math>
+
+and, given that the respondent is in group k:  
+
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mo movablelimits="true" form="prefix">Pr</mo>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi mathvariant="bold">x</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>&#x2223;<!-- ∣ --></mo>
+  <msub>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi mathvariant="bold">z</mi>
+    </mrow>
+    <mi>i</mi>
+  </msub>
+  <mo>=</mo>
+  <mi>k</mi>
+  <mo>,</mo>
+  <mrow class="MJX-TeXAtom-ORD">
+    <mi mathvariant="bold">w</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi mathvariant="bold-italic">&#x03B8;<!-- θ --></mi>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+  <munderover>
+    <mo>&#x220F;<!-- ∏ --></mo>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>m</mi>
+      <mo>=</mo>
+      <mn>1</mn>
+    </mrow>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>M</mi>
+    </mrow>
+  </munderover>
+  <msubsup>
+    <mi>&#x03B8;<!-- θ --></mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>k</mi>
+      <mi>m</mi>
+    </mrow>
+    <mrow class="MJX-TeXAtom-ORD">
+      <msub>
+        <mi>x</mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi>i</mi>
+          <mi>m</mi>
+        </mrow>
+      </msub>
+    </mrow>
+  </msubsup>
+  <mo stretchy="false">(</mo>
+  <mn>1</mn>
+  <mo>&#x2212;<!-- − --></mo>
+  <msub>
+    <mi>&#x03B8;<!-- θ --></mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>k</mi>
+      <mi>m</mi>
+    </mrow>
+  </msub>
+  <msup>
+    <mo stretchy="false">)</mo>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mn>1</mn>
+      <mo>&#x2212;<!-- − --></mo>
+      <msub>
+        <mi>x</mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi>i</mi>
+          <mi>m</mi>
+        </mrow>
+      </msub>
+    </mrow>
+  </msup>
+</math>
+
+Then, the complete-data likelihood function is:
+
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mo movablelimits="true" form="prefix">Pr</mo>
+  <mo stretchy="false">(</mo>
+  <mrow class="MJX-TeXAtom-ORD">
+    <mi mathvariant="bold">x</mi>
+  </mrow>
+  <mo>,</mo>
+  <mrow class="MJX-TeXAtom-ORD">
+    <mi mathvariant="bold">z</mi>
+  </mrow>
+  <mo>&#x2223;<!-- ∣ --></mo>
+  <mrow class="MJX-TeXAtom-ORD">
+    <mi mathvariant="bold">w</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi mathvariant="bold-italic">&#x03B8;<!-- θ --></mi>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+  <munderover>
+    <mo>&#x220F;<!-- ∏ --></mo>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>k</mi>
+      <mo>=</mo>
+      <mn>1</mn>
+    </mrow>
+    <mi>K</mi>
+  </munderover>
+  <munderover>
+    <mo>&#x220F;<!-- ∏ --></mo>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>i</mi>
+      <mo>=</mo>
+      <mn>1</mn>
+    </mrow>
+    <mi>N</mi>
+  </munderover>
+  <msup>
+    <mrow>
+      <mo>[</mo>
+      <mrow>
+        <msub>
+          <mi>w</mi>
+          <mi>k</mi>
+        </msub>
+        <munderover>
+          <mo>&#x220F;<!-- ∏ --></mo>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi>m</mi>
+            <mo>=</mo>
+            <mn>1</mn>
+          </mrow>
+          <mi>M</mi>
+        </munderover>
+        <msubsup>
+          <mi>&#x03B8;<!-- θ --></mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi>k</mi>
+            <mi>m</mi>
+          </mrow>
+          <mrow class="MJX-TeXAtom-ORD">
+            <msub>
+              <mi>x</mi>
+              <mrow class="MJX-TeXAtom-ORD">
+                <mi>i</mi>
+                <mi>m</mi>
+              </mrow>
+            </msub>
+          </mrow>
+        </msubsup>
+        <mo stretchy="false">(</mo>
+        <mn>1</mn>
+        <mo>&#x2212;<!-- − --></mo>
+        <msub>
+          <mi>&#x03B8;<!-- θ --></mi>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mi>k</mi>
+            <mi>m</mi>
+          </mrow>
+        </msub>
+        <msup>
+          <mo stretchy="false">)</mo>
+          <mrow class="MJX-TeXAtom-ORD">
+            <mn>1</mn>
+            <mo>&#x2212;<!-- − --></mo>
+            <msub>
+              <mi>x</mi>
+              <mrow class="MJX-TeXAtom-ORD">
+                <mi>i</mi>
+                <mi>m</mi>
+              </mrow>
+            </msub>
+          </mrow>
+        </msup>
+      </mrow>
+      <mo>]</mo>
+    </mrow>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mrow class="MJX-TeXAtom-ORD">
+        <mi mathvariant="double-struck">I</mi>
+      </mrow>
+      <mo stretchy="false">(</mo>
+      <msub>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi mathvariant="bold">z</mi>
+        </mrow>
+        <mi>i</mi>
+      </msub>
+      <mo>=</mo>
+      <mi>k</mi>
+      <mo stretchy="false">)</mo>
+    </mrow>
+  </msup>
+</math>
+
+
+### Preprocesing of the data to acomplish the assumptions
+
+As the model assumptions said,we  want to have 19 binary variables, for doing so, we have just to
+set some rules to variables x6 and x7 along with ignoring Time_stamp, Age and Gender variables.
+As we have seen the gender variable has no much to do and the age is important but not for the clustering part,
+we will resume the age topic when commenting the results.
+
+
+```{r}
+X = data[4:22] #Ignore Time_stamp,Age and Gender
+
+
+X<-ifelse(X=="Si",1,0) #Binarizing the variables
+
+X = as.data.frame(X)
+X$x6.day.hrs = data$x6.day.hrs #Recovering the x6 and x7 columns from the original dataset
+X$x7.week.hrs = data$x7.week.hrs
+
+hours_week = 24*7
+sleep_time = 8 * 7 #Assuming 8 hours as the mean of hours sleeping
+work_time = 8 * 5 #Assuming full time jobs of 8 hours per day with free weekends
+eating_time = 2 * 7 #Assuming 2 hours a day spend in having lunch, having dinner, etc.
+
+free_time = hours_week - sleep_time - work_time - eating_time #58 hours a week of free time
+
+print(paste0("Average free time per week: ",free_time))
+
+```
+
+Given that in average we have 58 hours of free time per week (young people should have more), and given the previously commented density plots (majority of density between 0 and 25) of the hours per week, I have decided that 30 hours a week dedicated to watch series will be the threshold to input 1 on the variable x7, otherwise, the inputted value will be 0. 
+
+If we divide this 30 hours by 7, we obtain around 4.28 hours a day so I am going to input a 1 if the respondent has answer more than 4.5 and 0 otherwise.
+
+```{r}
+X$x6.day.hrs = ifelse(X$x6.day.hrs >= 4.5,1,0)
+X$x7.week.hrs = ifelse(X$x7.week.hrs >= 30,1,0)
+```
+
+
+### Bayesian EM algorithm
+
+In order to implement this LCA, we are going to use the BayesLCA package
+
+```{r}
+library(BayesLCA) 
+set.seed(100)
+```
+
+
+First we are going to apply the algorithm with the default parameters but with k=5 (for this library the K is renamed as G) (delta=beta=alpha=1, restarts=5, iterations=500)
+```{r}
+fit.EM=blca(X, G=3, method = "em") 
+```
+
+As the EM algorithm is susceptible to converge into a local maximum or saddle point, we are going to increase the restarts from the default 5 to 15
+
+
+```{r}
+fit.EM=blca(X, G=3, method = "em", restarts = 15) 
+```
+We can check the MAP estimators of the parameters of the model:
+
+```{r}
+print(fit.EM)
+```
+Also, we can check the prior parameters:
+
+```{r}
+summary(fit.EM)
+```
+```{r}
+par(mfrow=c(1,1))
+plot(fit.EM)
+```
+Now we are going to try with different priors
+
+```{r}
+fit.EM.prior2=blca.em(X, G=3,restarts=15,alpha=2,beta=2, verbose = FALSE) 
+```
+
+```{r}
+print(fit.EM.prior2)
+```
+
+```{r}
+fit.EM.prior0=blca.em(X, G=3,restarts=15,alpha=0.001,beta=0.001,verbose=FALSE) 
+```
+
+```{r}
+print(fit.EM.prior0)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(fit.EM,main="Alpha=1, Beta=1")
+plot(fit.EM.prior2, main="Alpha=2, Beta=2")
+plot(fit.EM.prior0,main="Alpha=0.001, Beta=0.001")
+```
+We can see that the one with alpha=2, beta=2 prior is practically identical to the uniform prior, on the other hand, the "improper" non informative prior is completely off.
+
+Now, we can try to set different K values and use the BIC criteria to see which one has a better mixture size:
+
+```{r}
+fit.EM.k.2=blca(X, 2, method = "em", restarts=15, verbose=FALSE)
+fit.EM.k.4=blca(X, 4, method = "em", restarts=15, verbose=FALSE)
+
+print(fit.EM.k.2) 
+print(fit.EM.k.4) 
+
+par(mfrow=c(1,2))
+plot(fit.EM.k.2,main="K = 2")
+plot(fit.EM.k.4, main="K = 4")
+```
+
+```{r}
+-fit.EM$BIC
+-fit.EM.k.2$BIC
+-fit.EM.k.4$BIC
+```
+
+Note that this library is calculating the BIC as
+
+![](D:/Documentos/Universidad/Tercero/Bayesian Data Analysis/Project/BayesLCA BIC formula.PNG)
+
+and not as the classical
+
+![](D:/Documentos/Universidad/Tercero/Bayesian Data Analysis/Project/BIC formula.PNG)
+
+According to this criteria, the lowest value is the one from K=3. At last, given the estimated model parameters, we can get the predictive probability class given a observation.
+
+```{r}
+Xnew = X[51,]
+Zscore(Xnew,fit=fit.EM)
+```
+
+### Gibbs sampling
+
+With the previous algorithm, we could only obtain the MAP values, with Gibbs sampling we want to obtain also the whole posterior distribution.
+
+Gibbs sampling is a particular MCMC method when the conditional posterior distributions are known.
+
+In order to obtain a sample from the joint distribution, <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>f</mi>
+  <mrow>
+    <mo>(</mo>
+    <mrow>
+      <mrow class="MJX-TeXAtom-ORD">
+        <mi mathvariant="bold">w</mi>
+      </mrow>
+      <mo>,</mo>
+      <mi mathvariant="bold-italic">&#x03B8;<!-- θ --></mi>
+      <mo>,</mo>
+      <mrow class="MJX-TeXAtom-ORD">
+        <mi mathvariant="bold">z</mi>
+      </mrow>
+      <mo>&#x2223;<!-- ∣ --></mo>
+      <mrow class="MJX-TeXAtom-ORD">
+        <mi mathvariant="bold">x</mi>
+      </mrow>
+    </mrow>
+    <mo>)</mo>
+  </mrow>
+</math>  we can sample iteratively from the conditional posterior distributions:
+
+  1. Sample <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mi mathvariant="bold-italic">&#x03B8;<!-- θ --></mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mrow>
+        <mo>(</mo>
+        <mrow>
+          <mi>t</mi>
+          <mo>+</mo>
+          <mn>1</mn>
+        </mrow>
+        <mo>)</mo>
+      </mrow>
+    </mrow>
+  </msup>
+  <mo>&#x223C;<!-- ∼ --></mo>
+  <mi>f</mi>
+  <mrow>
+    <mo>(</mo>
+    <mrow>
+      <mi mathvariant="bold-italic">&#x03B8;<!-- θ --></mi>
+      <mo>&#x2223;<!-- ∣ --></mo>
+      <mrow class="MJX-TeXAtom-ORD">
+        <mi mathvariant="bold">x</mi>
+      </mrow>
+      <mo>,</mo>
+      <msup>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi mathvariant="bold">w</mi>
+        </mrow>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow>
+            <mo>(</mo>
+            <mi>t</mi>
+            <mo>)</mo>
+          </mrow>
+        </mrow>
+      </msup>
+      <mo>,</mo>
+      <msup>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi mathvariant="bold">z</mi>
+        </mrow>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow>
+            <mo>(</mo>
+            <mi>t</mi>
+            <mo>)</mo>
+          </mrow>
+        </mrow>
+      </msup>
+    </mrow>
+    <mo>)</mo>
+  </mrow>
+</math>
+  2. Sample <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi mathvariant="bold">w</mi>
+    </mrow>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mrow>
+        <mo>(</mo>
+        <mrow>
+          <mi>t</mi>
+          <mo>+</mo>
+          <mn>1</mn>
+        </mrow>
+        <mo>)</mo>
+      </mrow>
+    </mrow>
+  </msup>
+  <mo>&#x223C;<!-- ∼ --></mo>
+  <mi>f</mi>
+  <mrow>
+    <mo>(</mo>
+    <mrow>
+      <mrow class="MJX-TeXAtom-ORD">
+        <mi mathvariant="bold">w</mi>
+      </mrow>
+      <mo>&#x2223;<!-- ∣ --></mo>
+      <mrow class="MJX-TeXAtom-ORD">
+        <mi mathvariant="bold">x</mi>
+      </mrow>
+      <mo>,</mo>
+      <msup>
+        <mi mathvariant="bold-italic">&#x03B8;<!-- θ --></mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow>
+            <mo>(</mo>
+            <mrow>
+              <mi>t</mi>
+              <mo>+</mo>
+              <mn>1</mn>
+            </mrow>
+            <mo>)</mo>
+          </mrow>
+        </mrow>
+      </msup>
+      <mo>,</mo>
+      <msup>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi mathvariant="bold">z</mi>
+        </mrow>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow>
+            <mo>(</mo>
+            <mi>t</mi>
+            <mo>)</mo>
+          </mrow>
+        </mrow>
+      </msup>
+    </mrow>
+    <mo>)</mo>
+  </mrow>
+</math>
+  3. Sample <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <msup>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi mathvariant="bold">z</mi>
+    </mrow>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mrow>
+        <mo>(</mo>
+        <mrow>
+          <mi>t</mi>
+          <mo>+</mo>
+          <mn>1</mn>
+        </mrow>
+        <mo>)</mo>
+      </mrow>
+    </mrow>
+  </msup>
+  <mo>&#x223C;<!-- ∼ --></mo>
+  <mo movablelimits="true" form="prefix">Pr</mo>
+  <mrow>
+    <mo>(</mo>
+    <mrow>
+      <mrow class="MJX-TeXAtom-ORD">
+        <mi mathvariant="bold">z</mi>
+      </mrow>
+      <mo>&#x2223;<!-- ∣ --></mo>
+      <mrow class="MJX-TeXAtom-ORD">
+        <mi mathvariant="bold">x</mi>
+      </mrow>
+      <mo>,</mo>
+      <msup>
+        <mi mathvariant="bold-italic">&#x03B8;<!-- θ --></mi>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow>
+            <mo>(</mo>
+            <mrow>
+              <mi>t</mi>
+              <mo>+</mo>
+              <mn>1</mn>
+            </mrow>
+            <mo>)</mo>
+          </mrow>
+        </mrow>
+      </msup>
+      <mo>,</mo>
+      <msup>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mi mathvariant="bold">w</mi>
+        </mrow>
+        <mrow class="MJX-TeXAtom-ORD">
+          <mrow>
+            <mo>(</mo>
+            <mrow>
+              <mi>t</mi>
+              <mo>+</mo>
+              <mn>1</mn>
+            </mrow>
+            <mo>)</mo>
+          </mrow>
+        </mrow>
+      </msup>
+    </mrow>
+    <mo>)</mo>
+  </mrow>
+</math>
+
+
+This Gibbs sampling algorithm is easy to implement since the conditional posterior distributions have a closed form. It is said that we have chosen semiconjugate priors.
+
+Now, we can apply the Gibbs sampling algorithm for the series data. We initially use k=3 and default priors:
+
+```{r}
+fit.GS=blca(X, 3, method = "gibbs") 
+print(fit.GS)
+```
+
+Before seeing some results plots, we are going to check if the algorithm is performing well. For doing that, we are going to perform a convergence diagnosis.
+
+```{r}
+par(mfrow = c(3, 3)) 
+plot(fit.GS, which = 5)
+```
+```{r}
+raftery.diag(as.mcmc(fit.GS))
+```
+
+We can see that the diagnostic shows a quick convergence (low burn-in values), but with a not that good mixing (there are  slightly large values of dependence factor of various parameters)
+
+With this analysis in mind, we can try to run another model with better hyperparameters:
+
+```{r}
+fit.GS.tuned=blca(X, 3, method = "gibbs", burn.in = 50, thin = 1/5, iter = 20000)
+```
+
+```{r}
+print(fit.GS.tuned)
+```
+
+We can observe now the plots of the posteriors densities for model parameters.  For the item probabilities, conditional on class membership and the class probabilities:
+```{r}
+par(mfrow=c(3,3))
+plot(fit.GS.tuned,which=3)
+```
+
+```{r}
+par(mfrow=c(1,1))
+plot(fit.GS.tuned,which=4)
+```
+
+```{r}
+par(mfrow=c(3,3))
+plot(fit.GS.tuned,which=5)
+```
+
+We could also try different priors but as the computational cost is to high, I will just put the lines but don't run it. For the number of K we are going to see only the BIC criteria in order to confirm that the K = 3 gives the best mixture.
+
+```{r, echo=FALSE}
+#fit.GS.tuned.prior2=blca(X, 3, method = "gibbs",alpha=2,beta=2, burn.in = 50, thin = 1/5, iter = 20000)
+#fit.GS.tuned.prior0=blca(X, 3, method = "gibbs",alpha=0.001,beta=0.001, burn.in = 50, thin = 1/5, iter = 18000)
+
+fit.GS.k.2=blca(X, 2, method = "gibbs", burn.in = 50, thin = 1/5, iter = 10000)
+fit.GS.k.4=blca(X, 4, method = "gibbs", burn.in = 50, thin = 1/5, iter = 20000)
+```
+
+```{r}
+-fit.GS.tuned$BIC
+-fit.GS.k.2$BIC
+-fit.GS.k.4$BIC
+```
+
+In this case we can see that K=2 and K=3 are pretty close but although K=2 wins in some runs and K=3 wins in others,we will keep working with K=3 just for getting the three main groups, addicted, non-addicted and don't care about series.
+
+### Variational Bayes
+
+The idea consists in approximating the posterior distribution <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>f</mi>
+  <mo stretchy="false">(</mo>
+  <mi mathvariant="bold-italic">&#x03C9;<!-- ω --></mi>
+  <mo>,</mo>
+  <mi mathvariant="bold-italic">&#x03B8;<!-- θ --></mi>
+  <mo>,</mo>
+  <mrow class="MJX-TeXAtom-ORD">
+    <mi mathvariant="bold">z</mi>
+  </mrow>
+  <mo>&#x2223;<!-- ∣ --></mo>
+  <mrow class="MJX-TeXAtom-ORD">
+    <mi mathvariant="bold">x</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> with a variational distribution <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi>q</mi>
+  <mo stretchy="false">(</mo>
+  <mrow class="MJX-TeXAtom-ORD">
+    <mi mathvariant="bold">w</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi mathvariant="bold-italic">&#x03B8;<!-- θ --></mi>
+  <mo>,</mo>
+  <mrow class="MJX-TeXAtom-ORD">
+    <mi mathvariant="bold">z</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+</math> which assumes independence among block of parameters:
+
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mi>q</mi>
+  <mo stretchy="false">(</mo>
+  <mrow class="MJX-TeXAtom-ORD">
+    <mi mathvariant="bold">w</mi>
+  </mrow>
+  <mo>,</mo>
+  <mi mathvariant="bold-italic">&#x03B8;<!-- θ --></mi>
+  <mo>,</mo>
+  <mrow class="MJX-TeXAtom-ORD">
+    <mi mathvariant="bold">z</mi>
+  </mrow>
+  <mo stretchy="false">)</mo>
+  <mo>=</mo>
+  <msub>
+    <mi>q</mi>
+    <mn>1</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow class="MJX-TeXAtom-ORD">
+    <mi mathvariant="bold">w</mi>
+  </mrow>
+  <mo>&#x2223;<!-- ∣ --></mo>
+  <mi mathvariant="bold-italic">&#x03B3;<!-- γ --></mi>
+  <mo stretchy="false">)</mo>
+  <msub>
+    <mi>q</mi>
+    <mn>2</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mi mathvariant="bold-italic">&#x03B8;<!-- θ --></mi>
+  <mo>&#x2223;<!-- ∣ --></mo>
+  <mi mathvariant="bold-italic">&#x03B6;<!-- ζ --></mi>
+  <mo stretchy="false">)</mo>
+  <msub>
+    <mi>q</mi>
+    <mn>3</mn>
+  </msub>
+  <mo stretchy="false">(</mo>
+  <mrow class="MJX-TeXAtom-ORD">
+    <mi mathvariant="bold">z</mi>
+  </mrow>
+  <mo>&#x2223;<!-- ∣ --></mo>
+  <mi mathvariant="bold-italic">&#x03D5;<!-- ϕ --></mi>
+  <mo stretchy="false">)</mo>
+</math>
+
+where <math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo stretchy="false">(</mo>
+  <mi mathvariant="bold-italic">&#x03B3;<!-- γ --></mi>
+  <mo>,</mo>
+  <mi mathvariant="bold-italic">&#x03B6;<!-- ζ --></mi>
+  <mo>,</mo>
+  <mi mathvariant="bold-italic">&#x03D5;<!-- ϕ --></mi>
+  <mo stretchy="false">)</mo>
+</math> are the variational parameters.
+
+The VB approach looks for the distributions qj that minimize the Kullback-Leibler divergence between the posterior and variational approximation.
+
+In mixture models, it can be shown that the form of qj is the same as that of the conditional posterior distribution.
+
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mrow class="MJX-TeXAtom-ORD">
+    <mi mathvariant="bold">w</mi>
+  </mrow>
+  <mo>&#x2223;<!-- ∣ --></mo>
+  <mi mathvariant="bold-italic">&#x03B3;<!-- γ --></mi>
+  <mo>&#x223C;<!-- ∼ --></mo>
+  <mi>D</mi>
+  <mi>i</mi>
+  <mi>r</mi>
+  <mi>i</mi>
+  <mi>c</mi>
+  <mi>h</mi>
+  <mi>l</mi>
+  <mi>e</mi>
+  <mi>t</mi>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mi>&#x03B3;<!-- γ --></mi>
+    <mn>1</mn>
+  </msub>
+  <mo>,</mo>
+  <mo>&#x2026;<!-- … --></mo>
+  <mo>,</mo>
+  <msub>
+    <mi>&#x03B3;<!-- γ --></mi>
+    <mi>k</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math>
+
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <msub>
+    <mi>&#x03B8;<!-- θ --></mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>k</mi>
+      <mi>m</mi>
+    </mrow>
+  </msub>
+  <mo>&#x2223;<!-- ∣ --></mo>
+  <mi mathvariant="bold-italic">&#x03B6;<!-- ζ --></mi>
+  <mo>&#x223C;<!-- ∼ --></mo>
+  <mi>B</mi>
+  <mi>e</mi>
+  <mi>t</mi>
+  <mi>a</mi>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mi>&#x03B6;<!-- ζ --></mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>k</mi>
+      <mi>m</mi>
+      <mn>1</mn>
+    </mrow>
+  </msub>
+  <mo>,</mo>
+  <msub>
+    <mi>&#x03B6;<!-- ζ --></mi>
+    <mrow class="MJX-TeXAtom-ORD">
+      <mi>k</mi>
+      <mi>m</mi>
+      <mn>2</mn>
+    </mrow>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math>
+
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <msub>
+    <mi>z</mi>
+    <mi>i</mi>
+  </msub>
+  <mo>&#x2223;<!-- ∣ --></mo>
+  <mi mathvariant="bold-italic">&#x03D5;<!-- ϕ --></mi>
+  <mo>&#x223C;<!-- ∼ --></mo>
+  <mi>M</mi>
+  <mi>u</mi>
+  <mi>l</mi>
+  <mi>t</mi>
+  <mi>i</mi>
+  <mi>n</mi>
+  <mi>o</mi>
+  <mi>m</mi>
+  <mi>i</mi>
+  <mi>a</mi>
+  <mi>l</mi>
+  <mo stretchy="false">(</mo>
+  <msub>
+    <mi>&#x03D5;<!-- ϕ --></mi>
+    <mn>1</mn>
+  </msub>
+  <mo>,</mo>
+  <mo>&#x2026;<!-- … --></mo>
+  <mo>,</mo>
+  <msub>
+    <mi>&#x03D5;<!-- ϕ --></mi>
+    <mi>n</mi>
+  </msub>
+  <mo stretchy="false">)</mo>
+</math>
+
+The variational parameters are updated iteratively until the KL divergence is minimized. 
+
+Now, we apply the Variational Bayes (VB) algorithm for the series data:
+
+```{r}
+fit.VB=blca(X, 3, method = "vb") 
+print(fit.VB)
+```
+
+Observe that the VB method is much more faster than the Gibbs sampling. And VB also provides posterior standard deviation estimates.
+
+```{r}
+fit.VB$itemprob 
+fit.VB$classprob 
+fit.VB$itemprob.sd
+fit.VB$classprob.sd
+```
+
+MAP estimates are close to those obtained with the Gibss sampling algorithm:
+
+```{r}
+fit.GS$itemprob 
+fit.VB$itemprob 
+fit.GS.tuned$classprob 
+fit.VB$classprob
+```
+
+However, the Gibbs sampling provides a better approximation of the posterior distributions. Observe that the posterior standard deviation estimates are larger than those obtained for the VB method, it is cause by the enforced independences between parameters imposed in VB
+
+```{r}
+fit.GS.tuned$itemprob.sd
+fit.VB$itemprob.sd
+fit.GS.tuned$classprob.sd
+fit.VB$classprob.sd
+```
+
+We may also observe these differences in the plots of density estimates for model parameters. Both for the item and class probabilities:
+
+```{r}
+par(mfrow = c(3,3))
+plot(fit.GS.tuned,which=3)
+```
+
+```{r}
+par(mfrow = c(3,3))
+plot(fit.VB,which=3)
+```
+
+```{r, echo=FALSE}
+par(mfrow = c(1,2))
+plot(fit.VB,which=4,main="Conditional Membership VB")
+plot(fit.GS.tuned,which=4,main="Conditional Membership GS")
+```
+
+### K-mean clustering
+
+As an extra plot we are going to use the factoextra library in order to make a K-Means clustering (Almost the same as using the bayesian EM). With this library we can get a 2D representation of the different clusters as the algorithm apply as postprocessing step a PCA.
+
+```{r, include==FALSE}
+library(factoextra)
+```
+
+
+```{r}
+set.seed(150)
+
+km.res = kmeans(X, 3, nstart = 40)
+fviz_cluster(km.res,X,ellipse = TRUE)
+print(km.res)
+```
+
+## Comparing the different approaches results
+
+Now that we have all the models implemented, we are going to plot the clusters results for each model according to the different ages and gender.
+
+```{r}
+
+cluster1 = data[which(km.res$cluster == 1),] 
+cluster2 = data[which(km.res$cluster == 2),] 
+cluster3 = data[which(km.res$cluster == 3),] 
+
+par(mfrow=c(1,3))
+pie(table(cluster1["Age"]),main="Cluster 1 K-means",radius=1)
+pie(table(cluster2["Age"]),main="Cluster 2 K-means",radius=1)
+pie(table(cluster3["Age"]),main="Cluster 3 K-means",radius=1)
+
+par(mfrow=c(1,2))
+
+a = dim(cluster1[which(cluster1$Age=="16-21"),])[1]
+b = dim(cluster1[which(cluster1$Age=="22-30"),])[1]
+
+c = dim(cluster2[which(cluster2$Age=="16-21"),])[1]
+d = dim(cluster2[which(cluster2$Age=="22-30"),])[1]
+
+e = dim(cluster3[which(cluster3$Age=="16-21"),])[1]
+f = dim(cluster3[which(cluster3$Age=="22-30"),])[1]
+
+total = a+b+c+d+e+f
+
+cluster1_prop = (a+b)/total
+cluster2_prop = (c+d)/total
+cluster3_prop = (e+f)/total
+
+pie(x=c(cluster1_prop,cluster2_prop,cluster3_prop),main="Ages 16-30 Cluster Prop K-means",radius=1,labels = c("C1","C2","C3"))
+
+a = dim(cluster1[which(cluster1$Age=="31-49"),])[1]
+b = dim(cluster1[which(cluster1$Age=="50-70"),])[1]
+
+c = dim(cluster2[which(cluster2$Age=="31-49"),])[1]
+d = dim(cluster2[which(cluster2$Age=="50-70"),])[1]
+
+e = dim(cluster3[which(cluster3$Age=="31-49"),])[1]
+f = dim(cluster3[which(cluster3$Age=="50-70"),])[1]
+
+total = a+b+c+d+e+f
+
+cluster1_prop = (a+b)/total
+cluster2_prop = (c+d)/total
+cluster3_prop = (e+f)/total
+
+pie(x=c(cluster1_prop,cluster2_prop,cluster3_prop),main="Ages 31-70 Cluster Prop K-means",radius=1,labels = c("C1","C2","C3"))
+
+par(mfrow=c(1,3))
+pie(table(cluster1["Gender"]),main="Cluster 1 K-means",radius=1)
+pie(table(cluster2["Gender"]),main="Cluster 2 K-means",radius=1)
+pie(table(cluster3["Gender"]),main="Cluster 3 K-means",radius=1)
+
+```
+
+Note that the following algorithms doesn't need to have the same cluster order, that means, cluster 1 in the K-means could be cluster 3 on the GS. Anyway, it should be easy to compare the same classes as the shapes are going to be more or less the same.
+
+```{r}
+
+ClusterProbEM = as.data.frame(Zscore(X,fit=fit.EM)) 
+colnames(ClusterProbEM) = c(1,2,3)
+ClusterNumbersEM = as.integer(colnames(ClusterProbEM)[apply(ClusterProbEM,1,which.max)])
+
+```
+
+```{r,echo=FALSE}
+
+cluster1 = data[which(ClusterNumbersEM == 1),] 
+cluster2 = data[which(ClusterNumbersEM == 2),] 
+cluster3 = data[which(ClusterNumbersEM == 3),] 
+
+par(mfrow=c(1,3))
+pie(table(cluster1["Age"]),main="Cluster 1 EM",radius=1)
+pie(table(cluster2["Age"]),main="Cluster 2 EM",radius=1)
+pie(table(cluster3["Age"]),main="Cluster 3 EM",radius=1)
+
+par(mfrow=c(1,2))
+
+a = dim(cluster1[which(cluster1$Age=="16-21"),])[1]
+b = dim(cluster1[which(cluster1$Age=="22-30"),])[1]
+
+c = dim(cluster2[which(cluster2$Age=="16-21"),])[1]
+d = dim(cluster2[which(cluster2$Age=="22-30"),])[1]
+
+e = dim(cluster3[which(cluster3$Age=="16-21"),])[1]
+f = dim(cluster3[which(cluster3$Age=="22-30"),])[1]
+
+total = a+b+c+d+e+f
+
+cluster1_prop = (a+b)/total
+cluster2_prop = (c+d)/total
+cluster3_prop = (e+f)/total
+
+pie(x=c(cluster1_prop,cluster2_prop,cluster3_prop),main="Ages 16-30 Cluster Prop EM",radius=1,labels = c("C1","C2","C3"))
+
+a = dim(cluster1[which(cluster1$Age=="31-49"),])[1]
+b = dim(cluster1[which(cluster1$Age=="50-70"),])[1]
+
+c = dim(cluster2[which(cluster2$Age=="31-49"),])[1]
+d = dim(cluster2[which(cluster2$Age=="50-70"),])[1]
+
+e = dim(cluster3[which(cluster3$Age=="31-49"),])[1]
+f = dim(cluster3[which(cluster3$Age=="50-70"),])[1]
+
+total = a+b+c+d+e+f
+
+cluster1_prop = (a+b)/total
+cluster2_prop = (c+d)/total
+cluster3_prop = (e+f)/total
+
+pie(x=c(cluster1_prop,cluster2_prop,cluster3_prop),main="Ages 31-70 Cluster Prop EM",radius=1,labels = c("C1","C2","C3"))
+
+par(mfrow=c(1,3))
+pie(table(cluster1["Gender"]),main="Cluster 1 EM",radius=1)
+pie(table(cluster2["Gender"]),main="Cluster 2 EM",radius=1)
+pie(table(cluster3["Gender"]),main="Cluster 3 EM",radius=1)
+
+```
+
+```{r}
+
+ClusterProbGS = as.data.frame(Zscore(X,fit=fit.GS.tuned)) 
+colnames(ClusterProbGS) = c(1,2,3)
+ClusterNumbersGS = as.integer(colnames(ClusterProbGS)[apply(ClusterProbGS,1,which.max)])
+
+```
+
+```{r,echo=FALSE}
+
+
+cluster1 = data[which(ClusterNumbersGS == 1),] 
+cluster2 = data[which(ClusterNumbersGS == 2),] 
+cluster3 = data[which(ClusterNumbersGS == 3),] 
+
+par(mfrow=c(1,3))
+pie(table(cluster1["Age"]),main="Cluster 1 GS",radius=1)
+pie(table(cluster2["Age"]),main="Cluster 2 GS",radius=1)
+pie(table(cluster3["Age"]),main="Cluster 3 GS",radius=1)
+
+par(mfrow=c(1,2))
+
+a = dim(cluster1[which(cluster1$Age=="16-21"),])[1]
+b = dim(cluster1[which(cluster1$Age=="22-30"),])[1]
+
+c = dim(cluster2[which(cluster2$Age=="16-21"),])[1]
+d = dim(cluster2[which(cluster2$Age=="22-30"),])[1]
+
+e = dim(cluster3[which(cluster3$Age=="16-21"),])[1]
+f = dim(cluster3[which(cluster3$Age=="22-30"),])[1]
+
+total = a+b+c+d+e+f
+
+cluster1_prop = (a+b)/total
+cluster2_prop = (c+d)/total
+cluster3_prop = (e+f)/total
+
+pie(x=c(cluster1_prop,cluster2_prop,cluster3_prop),main="Ages 16-30 Cluster Prop GS",radius=1,labels = c("C1","C2","C3"))
+
+a = dim(cluster1[which(cluster1$Age=="31-49"),])[1]
+b = dim(cluster1[which(cluster1$Age=="50-70"),])[1]
+
+c = dim(cluster2[which(cluster2$Age=="31-49"),])[1]
+d = dim(cluster2[which(cluster2$Age=="50-70"),])[1]
+
+e = dim(cluster3[which(cluster3$Age=="31-49"),])[1]
+f = dim(cluster3[which(cluster3$Age=="50-70"),])[1]
+
+total = a+b+c+d+e+f
+
+cluster1_prop = (a+b)/total
+cluster2_prop = (c+d)/total
+cluster3_prop = (e+f)/total
+
+pie(x=c(cluster1_prop,cluster2_prop,cluster3_prop),main="Ages 31-70 Cluster Prop GS",radius=1,labels = c("C1","C2","C3"))
+
+par(mfrow=c(1,3))
+pie(table(cluster1["Gender"]),main="Cluster 1 GS",radius=1)
+pie(table(cluster2["Gender"]),main="Cluster 2 GS",radius=1)
+pie(table(cluster3["Gender"]),main="Cluster 3 GS",radius=1)
+
+```
+
+```{r}
+
+ClusterProbVB = as.data.frame(Zscore(X,fit=fit.VB)) 
+colnames(ClusterProbVB) = c(1,2,3)
+ClusterNumbersVB = as.integer(colnames(ClusterProbVB)[apply(ClusterProbVB,1,which.max)])
+
+```
+
+```{r,echo=FALSE}
+
+cluster1 = data[which(ClusterNumbersVB == 1),] 
+cluster2 = data[which(ClusterNumbersVB == 2),] 
+cluster3 = data[which(ClusterNumbersVB == 3),] 
+
+par(mfrow=c(1,3))
+pie(table(cluster1["Age"]),main="Cluster 1 VB",radius=1)
+pie(table(cluster2["Age"]),main="Cluster 2 VB",radius=1)
+pie(table(cluster3["Age"]),main="Cluster 3 VB",radius=1)
+
+par(mfrow=c(1,2))
+
+a = dim(cluster1[which(cluster1$Age=="16-21"),])[1]
+b = dim(cluster1[which(cluster1$Age=="22-30"),])[1]
+
+c = dim(cluster2[which(cluster2$Age=="16-21"),])[1]
+d = dim(cluster2[which(cluster2$Age=="22-30"),])[1]
+
+e = dim(cluster3[which(cluster3$Age=="16-21"),])[1]
+f = dim(cluster3[which(cluster3$Age=="22-30"),])[1]
+
+total = a+b+c+d+e+f
+
+cluster1_prop = (a+b)/total
+cluster2_prop = (c+d)/total
+cluster3_prop = (e+f)/total
+
+pie(x=c(cluster1_prop,cluster2_prop,cluster3_prop),main="Ages 16-30 Cluster Prop VB",radius=1,labels = c("C1","C2","C3"))
+
+a = dim(cluster1[which(cluster1$Age=="31-49"),])[1]
+b = dim(cluster1[which(cluster1$Age=="50-70"),])[1]
+
+c = dim(cluster2[which(cluster2$Age=="31-49"),])[1]
+d = dim(cluster2[which(cluster2$Age=="50-70"),])[1]
+
+e = dim(cluster3[which(cluster3$Age=="31-49"),])[1]
+f = dim(cluster3[which(cluster3$Age=="50-70"),])[1]
+
+total = a+b+c+d+e+f
+
+cluster1_prop = (a+b)/total
+cluster2_prop = (c+d)/total
+cluster3_prop = (e+f)/total
+
+pie(x=c(cluster1_prop,cluster2_prop,cluster3_prop),main="Ages 31-70 Cluster Prop VB",radius=1,labels = c("C1","C2","C3"))
+
+par(mfrow=c(1,3))
+pie(table(cluster1["Gender"]),main="Cluster 1 VB",radius=1)
+pie(table(cluster2["Gender"]),main="Cluster 2 VB",radius=1)
+pie(table(cluster3["Gender"]),main="Cluster 3 VB",radius=1)
+
+```
+
+```{r,echo=FALSE}
+
+print(paste0("Male respondants: ",dim(data[which(data$Gender=="Hombre"),])[1]))
+print(paste0("Female respondants: ",dim(data[which(data$Gender=="Mujer"),])[1]))
+
+```
+
+As we can see, the gender has nothing to do with the clusters but young people tend more to by addicted. Also, the results between different models are not such a difference, the higher differences are found between frequentist and bayesian but are also similar. Due to the computational costs, the frequentist K-means and the VB will be the models to choose.
+
+## Conclusions
+
+* We have implemented a Bayesian approach for clustering of different profiles of series watchers according to their behavior.
+
+* We have implemented three different approaches of bayesian methods, EM, MCMC(Gibbs sampling) and VB 
+
+* The frequentist K-means also offers good result that are a little bit different from the Bayesian ones.
+
+* The VB is the fastest approach but tend to diminish variance estimates.
+
+* Gibbs sampling is very time consuming but offers a better approximation.
+
+* Young people tend to be more in the addicted to series profile
